@@ -1,9 +1,14 @@
 %lang starknet
+%builtins output range_check
+
 
 # Library to implement array operations.
 
 from starkware.cairo.common.alloc import alloc
 from starkware.cairo.common.math_cmp import is_le
+from starkware.cairo.common.serialize import serialize_word
+from starkware.cairo.common.math import sqrt, assert_in_range
+from starkware.cairo.common.usort import usort
 
 # Compute the sum of the element in an array.
 # Args:
@@ -197,3 +202,102 @@ func contains(value : felt, input_len : felt, input : felt*) -> (result : felt):
     end
 end
 
+################################### Cuau ###############################
+
+# Helper function, calculates the deviations of each data point from the mean, and square the result of each.
+# Args:
+#   input_len - length of the felt array.
+#   input - felt array.
+#   output - felt array where new values will be stored
+#   step - felt, must be 0 when first called 
+#   mu - felt representing the mean
+# Returns:
+#   none
+func helper_var(input_len : felt, input : felt*, output : felt*, step : felt, mu : felt):
+    
+    if input_len == step: 
+        return ()
+    end
+
+    tempvar val : felt 
+    val = [input]
+
+    tempvar dif : felt
+    dif = val - mu
+
+    assert [output] =  dif*dif
+    helper_var(input_len, input + 1, output + 1, step + 1, mu)
+    return()
+end
+
+
+# Compute the variance along the specified array.
+# Args:
+#   input_len - length of the felt array.
+#   input - felt array.
+# Returns:
+#   output - felt: the variance of the array elements, a measure of the spread of a distribution.
+func var(input_len : felt, input : felt*) -> (output : felt):
+    alloc_locals
+
+    let (mu) = mean(input_len, input)
+    let (local inter : felt*) = alloc()
+
+    helper_var(input_len=input_len, input=input, output=inter, step=0, mu=mu)
+
+    let (var) = mean(input_len, inter)
+
+    return(output=var)
+end
+
+# Compute the variance along the specified array.
+# Args:
+#   input_len - length of the felt array.
+#   input - felt array.
+# Returns:
+#   output - felt: floor value of the standar deviation.
+func std{output_ptr : felt*,range_check_ptr}(input_len : felt, input : felt*) -> (output : felt):
+    
+    let (v) = var(input_len, input)
+    let (sd) = sqrt(v)
+
+    return(sd)
+end
+
+# Returns the q-th percentile of the array elements
+# Args:
+#   input_len - length of the felt array.
+#   input - sorted felt array.
+#   q - felt between 1 and 100
+# Returns:
+#   output - felt value of the q percetile
+func percentile{range_check_ptr}(input_len : felt, input : felt*, q : felt) -> (output : felt):
+
+    assert_in_range(q,1,101)
+
+    tempvar index : felt
+    tempvar isInt : felt
+
+    if q == 100:
+        return(input[input_len - 1])
+    end
+
+
+    %{
+        i = (ids.q/100) * ids.input_len
+
+        ids.isInt = 1 if i%1 == 0 else 0
+        ids.index =  round(i)
+    %}
+
+    if isInt == 0:
+        return(input[index - 1])
+    end
+
+    let x1 = input[index - 1]
+    let x2 = input[index]
+
+    let r = x2 + x1
+
+    return(r/2)
+end
